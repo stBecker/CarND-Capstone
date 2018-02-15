@@ -5,7 +5,9 @@ from std_msgs.msg import Bool
 from dbw_mkz_msgs.msg import ThrottleCmd, SteeringCmd, BrakeCmd, SteeringReport
 from geometry_msgs.msg import TwistStamped
 import math
-
+# from dbw_mkz_msgs.msg import SteeringReport
+from geometry_msgs.msg import TwistStamped, PoseStamped
+from styx_msgs.msg import Lane
 from twist_controller import Controller
 
 '''
@@ -53,10 +55,26 @@ class DBWNode(object):
         self.brake_pub = rospy.Publisher('/vehicle/brake_cmd',
                                          BrakeCmd, queue_size=1)
 
-        # TODO: Create `Controller` object
-        # self.controller = Controller(<Arguments you wish to provide>)
+        self.controller = Controller(max_steer_angle)
+        self.speed_controller = SpeedController(vehicle_mass,
+                                                wheel_radius,
+                                                accel_limit,
+                                                decel_limit,
+                                                brake_deadband,
+                                                fuel_capacity,
+                                                max_acceleration)
 
-        # TODO: Subscribe to all the topics you need to
+        self.yaw_controller = YawController(wheel_base,
+                                            steer_ratio,
+                                            min_speed,
+                                            max_lat_accel,
+                                            max_steer_angle)
+
+        rospy.Subscriber('/vehicle/dbw_enabled', Bool, self.dbw_cb, queue_size=1)
+        rospy.Subscriber('/final_waypoints', Lane, self.waypoints_cb, queue_size=1)
+        rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb, queue_size=1)
+        rospy.Subscriber('/current_velocity', TwistStamped, self.velocity_cb, queue_size=1)
+        rospy.Subscriber('/twist_cmd', TwistStamped, self.twist_cb, queue_size=1)
 
         self.loop()
 
@@ -72,6 +90,10 @@ class DBWNode(object):
             #                                                     <any other argument you need>)
             # if <dbw is enabled>:
             #   self.publish(throttle, brake, steer)
+
+            if self.dbw_enabled:
+                self.publish(throttle, brake, steer + PREDICTIVE_STEERING * yaw_steer)
+
             rate.sleep()
 
     def publish(self, throttle, brake, steer):

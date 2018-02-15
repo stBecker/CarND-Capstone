@@ -3,6 +3,9 @@
 import rospy
 from geometry_msgs.msg import PoseStamped
 from styx_msgs.msg import Lane, Waypoint
+from std_msgs.msg import Int32
+from geometry_msgs.msg import PoseStamped
+from styx_msgs.msg import Lane
 
 import math
 
@@ -31,26 +34,33 @@ class WaypointUpdater(object):
         rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
         rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
 
-        # TODO: Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
-
+        rospy.Subscriber('/traffic_waypoint', Int32, self.traffic_cb)
+        rospy.Subscriber('/obstacle_waypoint', Int32, self.obstacle_cb)
 
         self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
 
-        # TODO: Add other member variables you need below
+        self.base_waypoints = None
+        self.pose = None #: Current vehicle location + orientation
+        self.frame_id = None
+        self.previous_car_index = 0 #: Where in base waypoints list the car is
+        self.traffic_index = -1 #: Where in base waypoints list the traffic light is
+        self.traffic_time_received = rospy.get_time() #: When traffic light info was received
+
+        self.slowdown_coefficient = rospy.get_param("~slowdown_coefficient")
+        self.stopped_distance = 0.25
 
         rospy.spin()
 
     def pose_cb(self, msg):
-        # TODO: Implement
-        pass
+        self.pose = msg.pose # store location (x, y)
+        self.frame_id = msg.header.frame_id
 
     def waypoints_cb(self, waypoints):
-        # TODO: Implement
-        pass
+        self.base_waypoints = waypoints
 
     def traffic_cb(self, msg):
-        # TODO: Callback for /traffic_waypoint message. Implement
-        pass
+        self.traffic_index = msg.data
+        self.traffic_time_received = rospy.get_time()
 
     def obstacle_cb(self, msg):
         # TODO: Callback for /obstacle_waypoint message. We will implement it later

@@ -1,5 +1,9 @@
 #!/usr/bin/env python
+from cmath import sqrt
+
+import math
 import rospy
+import sys
 from std_msgs.msg import Int32
 from geometry_msgs.msg import PoseStamped, Pose
 from styx_msgs.msg import TrafficLightArray, TrafficLight
@@ -10,6 +14,7 @@ from light_classification.tl_classifier import TLClassifier
 import tf
 import cv2
 import yaml
+from geometry_msgs.msg import PointStamped
 
 STATE_COUNT_THRESHOLD = 3
 
@@ -100,8 +105,15 @@ class TLDetector(object):
             int: index of the closest waypoint in self.waypoints
 
         """
-        #TODO implement
-        return 0
+        min_dist = 9999999
+        min_idx = -1
+        for i, wp in enumerate(self.waypoints):
+            dist = math.sqrt((wp.x - pose.x) ** 2 + (wp.y - pose.y) ** 2)
+            if dist < min_dist:
+                min_idx = i
+                min_dist = dist
+
+        return min_idx
 
     def get_light_state(self, light):
         """Determines the current color of the traffic light
@@ -139,12 +151,76 @@ class TLDetector(object):
             car_position = self.get_closest_waypoint(self.pose.pose)
 
         #TODO find the closest visible traffic light (if one exists)
+        light_wp = self.get_next_stop_line()
 
         if light:
             state = self.get_light_state(light)
             return light_wp, state
         self.waypoints = None
         return -1, TrafficLight.UNKNOWN
+
+    def get_next_stop_line(self):
+        """
+        Find index and position of the next stopping point in front of the car
+        """
+        next_stop_idx = sys.maxint
+        next_stop = None
+        for stop, stop_idx in self.stop_map.items():
+            if stop_idx > self.car_index and stop_idx < next_stop_idx:
+                next_stop = stop
+                next_stop_idx = stop_idx
+
+        if next_stop is None:
+            return None, None
+        return next_stop_idx, next_stop
+
+    #---------------------------------------------------------------------------
+    def get_next_stop_wp(self):
+        """
+        Get the next stop waypoint if it is close enough and in the view of
+        the camera
+        """
+
+        #-----------------------------------------------------------------------
+        # Check if we have the next light at all
+        #-----------------------------------------------------------------------
+        idx, stop = self.get_next_stop_line()
+        if stop is None:
+            return None
+
+        #-----------------------------------------------------------------------
+        # Convert to local coordinate frame
+        #-----------------------------------------------------------------------
+        stop_point = PointStamped()
+        stop_point.header.stamp = rospy.get_rostime()
+        stop_point.header.frame_id = '/world'
+        stop_point.point.x = stop.x
+        stop_point.point.y = stop.y
+        stop_point.point.z = 0
+
+        try:
+            self.listener.waitForTransform("/base_link", "/world",
+                                           rospy.get_rostime(),
+                                           rospy.Duration(0.1))
+            stop_point = self.listener.transformPoint("/base_link", stop_point)
+        except (tf.Exception, tf.LookupException, tf.ConnectivityException):
+            rospy.logwarn("Failed to find camera to map transform")
+            return None
+
+        x = stop_point.point.x
+        y = stop_point.point.y
+
+        #-----------------------------------------------------------------------
+        # Check if it's not too far and in the view of the camera
+        #-----------------------------------------------------------------------
+        if math.sqrt(x*x+y*y) > 50:
+            return None
+
+        angle = abs(math.atan2(y, x))
+        if angle > self.field_of_view:
+            return None
+
+        return idx
 
 if __name__ == '__main__':
     try:
